@@ -36,6 +36,11 @@
 
 #include "tools_schema.h"
 
+#ifndef ND_FW_ID
+#define ND_FW_ID "custom"
+#endif
+static int s_ms_per_tok = 0;
+
 /* The schema is generated from tools/led.json at build time; see
  * main/CMakeLists.txt. Edit that JSON, not this file. */
 static const char TOOLS_RAW[] = ND_TOOLS_JSON;
@@ -216,7 +221,6 @@ static float arg_num(const char *json, const char *key, float dflt)
     return (float)atof(p + 1);
 }
 
-__attribute__((unused))    /* provided for handlers with boolean fields */
 static int arg_bool(const char *json, const char *key, int dflt)
 {
     char        quoted[ND_GR_STRLEN + 4];
@@ -264,11 +268,59 @@ static void tool_set_led(const char *args)
     led_run(color, mode, secs);
 }
 
+/* Kettle simulator: the NeoPixel stands in for the heater. Blue (cool) to red
+ * (boiling) shows the target temperature; a slow pulse means keep-warm. No
+ * real heater is driven - hard safety limits belong outside the model. */
+static void kettle_color(int t, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    float f = (t - 40) / 60.0f;
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
+    *r = (uint8_t)(64 * f);
+    *g = (uint8_t)(16 * (1.0f - (f > 0.5f ? (f - 0.5f) * 2 : (0.5f - f) * 2)));
+    *b = (uint8_t)(64 * (1.0f - f));
+}
+
+static void tool_set_kettle(const char *args)
+{
+    int     t    = (int)arg_num(args, "temperature_c", 100);
+    int     warm = arg_bool(args, "keep_warm", 0);
+    uint8_t r, g, b;
+    int     i;
+
+    printf("ACT kettle action=heat temperature=%d keep_warm=%d\n", t, warm);
+    fflush(stdout);
+    kettle_color(t, &r, &g, &b);
+    for (i = 0; i < 3; i++) {               /* "heating" ramp */
+        led_set(r / 4, g / 4, b / 4); vTaskDelay(pdMS_TO_TICKS(250));
+        led_set(r, g, b);             vTaskDelay(pdMS_TO_TICKS(250));
+    }
+    if (warm) {
+        for (i = 0; i < 6; i++) {           /* keep-warm breathing */
+            led_set(r / 6, g / 6, b / 6); vTaskDelay(pdMS_TO_TICKS(600));
+            led_set(r / 2, g / 2, b / 2); vTaskDelay(pdMS_TO_TICKS(600));
+        }
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(1500));
+    }
+    led_set(0, 0, 0);
+}
+
+static void tool_stop_kettle(const char *args)
+{
+    printf("ACT kettle action=stop\n");
+    fflush(stdout);
+    led_set(24, 24, 24); vTaskDelay(pdMS_TO_TICKS(150));
+    led_set(0, 0, 0);
+}
+
 static const struct {
     const char *name;
     tool_fn     fn;
 } TOOL_TABLE[] = {
-    { "set_led", tool_set_led },
+    { "set_led",     tool_set_led },
+    { "set_kettle",  tool_set_kettle },
+    { "stop_kettle", tool_stop_kettle },
 };
 
 /* ===========================================================================
@@ -491,6 +543,8 @@ void app_main(void)
         return;
     }
 
+    printf("EVT fw id=%s\n", ND_FW_ID);
+    printf("EVT tools %s\n", TOOLS_JSON);
     printf("EVT ready model=needle2 layers=%u d_model=%u vocab=%u window=%u "
            "tools=%u psram_free=%u internal_free=%u\n",
            (unsigned)s_model.n_layers, (unsigned)s_model.d_model,
@@ -514,6 +568,7 @@ void app_main(void)
             nd_model_step_hidden(&s_model, (uint32_t)(100 + i));
         {
             double ms = (esp_timer_get_time() - t) / 1000.0;
+            s_ms_per_tok = (int)(ms / N);
             printf("EVT bench tokens=%d ms=%.0f ms_per_tok=%.0f tps=%.3f\n",
                    N, ms, ms / N, N / (ms / 1000.0));
 #ifdef ND_PROFILE
@@ -584,7 +639,23 @@ void app_main(void)
                 s_show_think = (line[7] != '0');
             else
                 s_show_think = !s_show_think;
-            printf("EVT think=%d\n", s_show_think);
+            printf("EVT think=%d fw=%s\n", s_show_think, ND_FW_ID);
+            fflush(stdout);
+            continue;
+        }
+
+        if (!strcmp(line, "!info")) {
+            printf("EVT fw id=%s\n", ND_FW_ID);
+            printf("EVT tools %s\n", TOOLS_JSON);
+            printf("EVT ready model=needle2 layers=%u d_model=%u vocab=%u window=%u "
+                   "tools=%u psram_free=%u internal_free=%u\n",
+                   (unsigned)s_model.n_layers, (unsigned)s_model.d_model,
+                   (unsigned)s_model.vocab, (unsigned)s_model.window,
+                   (unsigned)s_grammar.n_tools,
+                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+            printf("EVT bench ms_per_tok=%d\n", s_ms_per_tok);
+            printf("EVT think=%d fw=%s\n", s_show_think, ND_FW_ID);
             fflush(stdout);
             continue;
         }

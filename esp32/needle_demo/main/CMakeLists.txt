@@ -2,7 +2,9 @@
 # The tool schema is generated into a header from the canonical JSON file, so
 # there is a single source of truth shared with the host tools.
 # ---------------------------------------------------------------------------
-set(ND_SCHEMA_PATH "${CMAKE_CURRENT_LIST_DIR}/../../../tools/led.json")
+if(NOT DEFINED ND_SCHEMA_PATH)
+  set(ND_SCHEMA_PATH "${CMAKE_CURRENT_LIST_DIR}/../../../tools/led.json")
+endif()
 
 file(READ "${ND_SCHEMA_PATH}" ND_SCHEMA_RAW)
 string(REGEX REPLACE "[\r\n]" "" ND_SCHEMA_RAW "${ND_SCHEMA_RAW}")
@@ -19,3 +21,10 @@ idf_component_register(SRCS "main.c"
                        INCLUDE_DIRS "${CMAKE_CURRENT_BINARY_DIR}/generated"
                        REQUIRES needle esp_driver_rmt esp_driver_gpio
                                 esp_partition esp_timer)
+
+if(DEFINED ND_FW_ID)
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE ND_FW_ID="${ND_FW_ID}")
+endif()
+if(ND_PROFILE)
+  target_compile_definitions(${COMPONENT_LIB} PRIVATE ND_PROFILE)
+endif()
