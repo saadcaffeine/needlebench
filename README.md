@@ -1,4 +1,58 @@
-# Needle 2 on an ESP32-S3
+# NeedleBench
+
+**A browser workbench for ESP32-S3 boards running Needle 2.** It's a fork of [andrisgauracs/needle-2-esp32](https://github.com/andrisgauracs/needle-2-esp32) that adds a web console, NeoPixel monitor and flasher, plus firmware variants including a kettle simulator for voice-controlled appliance experiments.
+
+**Live tool:** https://saadcaffeine.github.io/needlebench/ — desktop Chrome, Edge or Opera, which support Web Serial.
+
+![NeedleBench console, board view and flasher](docs/screenshot.png)
+
+## What NeedleBench adds
+
+- **`docs/`**, the web tool served by GitHub Pages:
+  - Web Serial console with token streaming, groundedness and timings.
+  - Illustrated N16R8 board with a magnified NeoPixel and LINK / BOARD / TX / RX indicators.
+  - Flasher built on esptool-js, bundled locally and MD5-verified. It offers the presets below, a choice of model source, or custom `.bin` files at chosen offsets.
+- **Firmware v1.1** (`esp32/needle_demo/main/main.c`):
+  - Prints `EVT fw id=…` and `EVT tools <json>` at boot.
+  - Adds the `!info` command, and the `!think` reply now includes `fw=…`, so clients can identify a board that's already running.
+  - Adds kettle tools: `set_kettle(temperature_c 40–100, keep_warm)` and `stop_kettle()`. The NeoPixel stands in for the heater.
+  - New build options: `ND_FW_ID`, `ND_SCHEMA_PATH` and `ND_PROFILE`.
+- **Build fix:** adds `esp32/needle_demo/components/needle/CMakeLists.txt`. Upstream never committed it because the `.gitignore` rule `needle/` also matched it. The rules `/needle/` and `/model/` are now anchored to the repository root.
+- **`tools/kettle.json`:** a schema tuned on the host engine. "Boil the kettle" maps to heating at 100 °C, and off-topic requests fall back to `stop_kettle`.
+- **`tools/build_variants.sh`:** rebuilds every variant into `docs/fw/`.
+
+| Variant | Tools | Measured on an N16R8 board |
+|---|---|---|
+| `needle2-led` | `set_led` | "make it purple" → purple solid, 38 s with reasoning |
+| `needle2-led-prof` | `set_led`, plus per-phase boot timings | builds clean; not yet run on hardware |
+| `needle2-kettle` | `set_kettle`, `stop_kettle` | "heat water to 80 degrees and keep it warm" → 80 °C keep-warm, 27 s; "turn the kettle off" → stop, 17 s (reasoning off) |
+
+### Publishing the site
+
+In **Settings → Pages**, choose **Deploy from a branch**, then `main` and `/docs`. `docs/model/needle2.cact` (13.7 MB, Apache-2.0, Cactus Compute) is hosted with the page so the flasher works without Hugging Face. Delete it if you'd rather not host it; the page then greys out that option.
+
+### Rebuilding the firmware
+
+```bash
+. $HOME/esp/esp-idf/export.sh      # ESP-IDF v5.5
+tools/build_variants.sh            # writes docs/fw/<variant>/{bootloader,partition-table,app}.bin
+```
+
+### Credits
+
+- **NeedleBench**: web tool, board illustration and firmware variants by [saadcaffeine](https://github.com/saadcaffeine).
+- **Needle 2** model and weights by [Cactus Compute](https://github.com/cactus-compute/needle), Apache-2.0.
+- **needle-2-esp32** engine and demo firmware by [andrisgauracs](https://github.com/andrisgauracs/needle-2-esp32), Apache-2.0. The original README follows below.
+- **ESP-IDF** and **esptool-js** by Espressif Systems, Apache-2.0.
+- **pako**, **atob-lite**, **tslib** and **spark-md5** are bundled in the flasher. See [docs/THIRD_PARTY_NOTICES.md](docs/THIRD_PARTY_NOTICES.md).
+
+ESP32 and Espressif are trademarks of Espressif Systems; NeoPixel is a trademark of Adafruit Industries. This project is independent and not affiliated with or endorsed by them or by Cactus Compute. The kettle variant only simulates a heater. Never let model output switch a mains appliance without independent hardware safety limits.
+
+---
+
+*Upstream README (needle-2-esp32):*
+
+## Needle 2 on an ESP32-S3
 
 A 45M-parameter language model doing grammar-guaranteed tool calling entirely
 on a microcontroller. No network, no cloud. The weights are memory-mapped from
@@ -194,9 +248,9 @@ overclock.
 
 `idf.py monitor` needs a TTY; use `tools/mon.py` in scripts.
 
-**Want a timing breakdown?** Uncomment the `ND_PROFILE` line in
-`esp32/needle_demo/components/needle/CMakeLists.txt` for per-phase milliseconds
-at boot. It is off by default because the timers cost a little speed.
+**Want a timing breakdown?** Build with `-DND_PROFILE=1` (for example
+`idf.py -B build_prof -DND_PROFILE=1 build`) for per-phase milliseconds at boot.
+It is off by default because the timers cost a little speed.
 
 ## Verifying a build
 

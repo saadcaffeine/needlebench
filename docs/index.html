@@ -1,0 +1,992 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeedleBench</title>
+<meta name="description" content="Browser utility for ESP32-S3 boards running the Needle on-device tool-calling model: console, NeoPixel monitor and flasher.">
+<meta name="author" content="saadcaffeine">
+<meta property="og:title" content="NeedleBench">
+<meta property="og:description" content="Talk to, watch and flash an ESP32-S3 running Needle, a 45M-parameter tool-calling model, straight from Chrome over Web Serial.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='6' width='20' height='20' rx='3' fill='%23f4f1ea'/%3E%3Ccircle cx='16' cy='16' r='6' fill='%2338e07b'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#ecebe6; --surface:#f8f7f3; --surface-2:#efede7; --ink:#191917; --muted:#67655e; --line:#d8d5cc;
+  --accent:#0b6bcb; --accent-ink:#fff; --ok:#1c8a4c; --warn:#b26a00; --err:#c0362c; --flash:#a43fd6;
+  --focus:#f2a900; --code:#e9e7e0;
+  --pcb:#17573b; --pcb-edge:#0e3d29; --silk:#e8efe9; --pad:#c9a448; --pad-hole:#5b4a1d;
+  --mod:#232a36; --shield-a:#d9dde2; --shield-b:#9aa1ab; --shield-ink:#2b2f36;
+  --loupe-bg:#0c0e11; --cable:#2a2a2a;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#101112; --surface:#18191b; --surface-2:#1f2023; --ink:#eeece6; --muted:#9c9a92; --line:#2e2f33;
+    --accent:#5aa2ff; --accent-ink:#06121f; --ok:#4fd18b; --warn:#f2a84a; --err:#ff7b6e; --flash:#d18cff;
+    --code:#141517; --pcb:#13442f; --pcb-edge:#0b2c1e; --silk:#cfe0d5; --mod:#1a1f28; --cable:#3a3b3e;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101112; --surface:#18191b; --surface-2:#1f2023; --ink:#eeece6; --muted:#9c9a92; --line:#2e2f33;
+  --accent:#5aa2ff; --accent-ink:#06121f; --ok:#4fd18b; --warn:#f2a84a; --err:#ff7b6e; --flash:#d18cff;
+  --code:#141517; --pcb:#13442f; --pcb-edge:#0b2c1e; --silk:#cfe0d5; --mod:#1a1f28; --cable:#3a3b3e;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html{font-size:17px}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.5}
+a{color:var(--accent)}
+.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 64px}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+button,select,input[type=text]{font:inherit}
+button{font-size:.88rem;border-radius:9px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:8px 14px;cursor:pointer;min-height:42px}
+button:hover:not(:disabled){border-color:var(--muted)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.danger{color:var(--err)}
+button:disabled{opacity:.45;cursor:not-allowed}
+select,input[type=text]{background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:40px}
+kbd,code{font-family:var(--mono);font-size:.8em;background:var(--code);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+
+/* header */
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;padding:6px 0 14px}
+.brand{display:flex;align-items:center;gap:10px}
+.brand .mark{width:26px;height:26px;border-radius:5px;background:#f4f1ea;display:grid;place-items:center;box-shadow:inset 0 0 0 1px #cfcac0}
+.brand .mark i{width:12px;height:12px;border-radius:50%;background:var(--px,#2a2b2e);box-shadow:0 0 10px 2px var(--px-glow,transparent);transition:background .08s,box-shadow .08s}
+.brand h1{font-size:1.25rem;margin:0;letter-spacing:-.01em}
+.brand small{color:var(--muted);font-size:.78rem;display:block;margin-top:-3px}
+.spacer{flex:1}
+.leds{display:flex;gap:14px;align-items:center;padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--surface)}
+.ind{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:.7rem;letter-spacing:.06em;color:var(--muted)}
+.ind .l{width:11px;height:11px;border-radius:50%;background:#3b3c3f;box-shadow:inset 0 -1px 2px rgba(0,0,0,.5);transition:background .05s, box-shadow .05s}
+.ind .l[data-s="on"]{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.ind .l[data-s="wait"]{background:var(--warn);box-shadow:0 0 8px var(--warn);animation:blink 1s infinite}
+.ind .l[data-s="busy"]{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.ind .l[data-s="boot"]{background:var(--accent);box-shadow:0 0 8px var(--accent);animation:blink 1.2s infinite}
+.ind .l[data-s="flash"]{background:var(--flash);box-shadow:0 0 8px var(--flash);animation:blink .5s infinite}
+.ind .l[data-s="err"]{background:var(--err);box-shadow:0 0 8px var(--err)}
+.ind .l[data-s="tx"]{background:#ffb43a;box-shadow:0 0 8px #ffb43a}
+.ind .l[data-s="rx"]{background:#41e27f;box-shadow:0 0 8px #41e27f}
+@keyframes blink{50%{opacity:.3}}
+.ind .v{color:var(--ink);font-family:var(--sans);letter-spacing:0;font-size:.78rem}
+
+/* sections */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px}
+h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px;font-weight:650}
+details.about{margin-bottom:14px}
+details.about>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;font-weight:600;font-size:.92rem}
+details.about>summary::-webkit-details-marker{display:none}
+details.about>summary::before{content:"";width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform .15s;margin-right:2px}
+details.about[open]>summary::before{transform:rotate(45deg)}
+details.about>summary span{color:var(--muted);font-weight:400;font-size:.82rem}
+.about-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:22px;margin-top:14px;font-size:.88rem}
+.about-grid h3{font-size:.9rem;margin:14px 0 4px}
+.about-grid h3:first-child{margin-top:0}
+.about-grid p,.about-grid li{color:var(--ink)}
+.about-grid ol,.about-grid ul{padding-left:20px;margin:6px 0}
+.links{list-style:none;padding:0!important;display:grid;gap:8px}
+.links li{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--surface-2)}
+.links a{font-weight:600;text-decoration:none}
+.links a:hover{text-decoration:underline}
+.links span{display:block;color:var(--muted);font-size:.8rem}
+.credits{border-top:1px solid var(--line);margin-top:18px;padding-top:12px;font-size:.84rem}
+.credits h3{font-size:.9rem;margin:0 0 6px}
+.credits ul{padding-left:18px;margin:0;display:grid;gap:5px}
+.credits .fine{color:var(--muted);font-size:.76rem;margin:10px 0 0}
+footer.foot{margin-top:22px;font-size:.76rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center}
+footer.foot a{color:var(--muted)}
+table.map{border-collapse:collapse;font-family:var(--mono);font-size:.75rem;width:100%}
+table.map td,table.map th{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
+table.map th{color:var(--muted);font-weight:500}
+
+.hero{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:14px}
+.board-card{padding:10px 10px 12px}
+.board-card svg{width:100%;height:auto;display:block}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px 14px;padding:6px 8px 0;font-size:.78rem}
+.facts div{min-width:0}
+.facts dt{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.07em}
+.facts dd{margin:0;font-family:var(--mono);overflow-wrap:anywhere}
+
+.readout .act{font-size:1.5rem;font-weight:650;line-height:1.2;margin:2px 0 2px}
+.readout .sub{font-family:var(--mono);font-size:.8rem;color:var(--muted);word-break:break-word}
+.wire{display:flex;align-items:center;gap:10px;margin-top:12px;font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+.wire .sw{width:34px;height:20px;border-radius:5px;border:1px solid var(--line);background:#222}
+.bar{height:8px;border-radius:5px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .25s}
+.meter{margin-top:14px}
+.meter .row{display:flex;justify-content:space-between;font-size:.76rem;color:var(--muted);margin-bottom:3px}
+.meter.conf .bar>i{background:var(--ok)}
+.meter.dur .bar>i{transition:none;background:var(--px,#888)}
+dl.stats{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:14px 0 0;font-size:.8rem}
+dl.stats dt{color:var(--muted)} dl.stats dd{margin:0;font-family:var(--mono)}
+.tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.tool{font-family:var(--mono);font-size:.7rem;padding:3px 8px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted)}
+.tool b{color:var(--ink);font-weight:600}
+
+.work{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(0,1fr);gap:14px;margin-top:14px}
+.ask{display:flex;gap:8px;flex-wrap:wrap}
+.ask input{flex:1 1 240px;font-size:1.05rem;min-height:50px;padding:10px 14px;border-radius:10px;background:var(--surface-2)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chips button{font-size:.78rem;padding:5px 11px;min-height:34px;border-radius:999px;color:var(--muted)}
+.opts{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:.84rem;color:var(--muted)}
+.opts label{display:inline-flex;align-items:center;gap:7px;cursor:pointer}
+.opts input{width:18px;height:18px;accent-color:var(--accent)}
+.prog{margin-top:12px}
+.prog .lbl{font-family:var(--mono);font-size:.74rem;color:var(--muted);margin-top:4px;min-height:1.2em}
+.stream{margin-top:12px;min-height:170px;max-height:340px;overflow:auto;font-family:var(--mono);font-size:.82rem;white-space:pre-wrap;word-break:break-word;background:var(--code);border:1px solid var(--line);border-radius:10px;padding:12px}
+.stream .think{color:var(--muted);font-style:italic}
+.stream .call{font-weight:600}
+.stream .ph{color:var(--muted)}
+.cursor{display:inline-block;width:.55em;height:1em;background:var(--accent);vertical-align:-2px;animation:blink .8s infinite}
+.hint{font-size:.76rem;color:var(--muted);margin:10px 0 0}
+.history ol{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.history li{display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:9px;align-items:center;font-size:.82rem;padding:7px 10px;border-radius:8px;background:var(--surface-2)}
+.history .sw{width:14px;height:14px;border-radius:50%;border:1px solid var(--line)}
+.history .q{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history .t{font-family:var(--mono);font-size:.72rem;color:var(--muted)}
+.history .a{grid-column:2/4;font-family:var(--mono);font-size:.7rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* flasher */
+.flash{margin-top:14px}
+.flash-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.flash-head h2{margin:0}
+.flash-grid{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:18px}
+.step{font-size:.78rem;font-weight:650;margin:0 0 8px;display:flex;gap:8px;align-items:center}
+.step i{font-style:normal;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--line);font-size:.7rem}
+.cards{display:grid;gap:8px}
+.card{display:grid;grid-template-columns:20px minmax(0,1fr);gap:4px 10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);cursor:pointer}
+.card input{margin:3px 0 0;width:17px;height:17px;accent-color:var(--accent)}
+.card:has(input:checked){border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.card.off{opacity:.55;cursor:not-allowed}
+.card b{font-size:.88rem}
+.card .tag{font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;border:1px solid var(--line);border-radius:4px;padding:0 5px;margin-left:6px;color:var(--muted);vertical-align:1px}
+.card p{grid-column:2;margin:0;font-size:.78rem;color:var(--muted)}
+.card .tools{grid-column:2;margin-top:4px}
+.custom{margin-top:10px;padding:10px;border:1px dashed var(--line);border-radius:10px;display:none}
+.custom.show{display:block}
+.frow{display:grid;grid-template-columns:minmax(0,1fr) 120px 36px;gap:6px;align-items:center;margin-bottom:6px}
+.frow input[type=file]{font-size:.76rem;min-width:0}
+.frow input[type=text]{font-family:var(--mono);min-height:34px;padding:4px 8px;font-size:.8rem}
+.frow button{min-height:34px;padding:0;font-size:1rem}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.quick button{font-size:.72rem;min-height:30px;padding:3px 9px}
+.radio-list{display:grid;gap:6px;font-size:.84rem}
+.radio-list label{display:flex;gap:8px;align-items:flex-start;cursor:pointer}
+.radio-list input{margin-top:4px;accent-color:var(--accent)}
+.radio-list small{color:var(--muted);display:block;font-size:.74rem}
+.flash-opts{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:14px;font-size:.84rem}
+.flash-opts label{display:inline-flex;gap:6px;align-items:center}
+.plan{margin-top:14px;font-family:var(--mono);font-size:.76rem}
+.plan .pi{display:grid;grid-template-columns:86px minmax(0,1fr) 70px;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--line)}
+.plan .pi .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.plan .pi .st{text-align:right;color:var(--muted)}
+.plan .pi .st.ok{color:var(--ok)} .plan .pi .st.bad{color:var(--err)}
+.plan .pi .bar{grid-column:1/4;height:5px}
+.plan .pi .bar>i{background:var(--flash)}
+.plan .empty{color:var(--muted)}
+.flash-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.warn{font-size:.8rem;color:var(--warn);margin-top:8px}
+.note{font-size:.76rem;color:var(--muted);margin-top:8px}
+pre.log{max-height:220px;overflow:auto;font-family:var(--mono);font-size:.72rem;background:var(--code);border:1px solid var(--line);padding:10px;border-radius:8px;margin:10px 0 0;white-space:pre-wrap}
+details.raw{margin-top:14px}
+details.raw summary{cursor:pointer;color:var(--muted);font-size:.84rem}
+.banner{padding:10px 14px;border-radius:10px;border:1px solid var(--err);color:var(--err);background:var(--surface);margin-bottom:12px;display:none;font-size:.88rem}
+.banner.show{display:block}
+.theme{min-height:36px;padding:4px 10px;font-size:.8rem}
+
+/* svg board */
+.svg-pcb{fill:var(--pcb);stroke:var(--pcb-edge);stroke-width:2}
+.svg-silk{fill:var(--silk);font-family:var(--mono)}
+.svg-silk-line{stroke:var(--silk);fill:none;stroke-width:1;opacity:.6}
+.svg-pad{fill:var(--pad)} .svg-hole{fill:var(--pad-hole)}
+.svg-mod{fill:var(--mod)}
+.svg-ink{fill:var(--shield-ink);font-family:var(--mono)}
+.svg-cable{stroke:var(--cable);stroke-width:12;fill:none;stroke-linecap:round;transition:opacity .3s}
+.svg-lbl{fill:var(--muted);font-family:var(--sans)}
+.svg-strong{fill:var(--ink);font-family:var(--sans);font-weight:650}
+.svg-lead{stroke:var(--muted);stroke-width:1.2;stroke-dasharray:3 3;fill:none}
+.svg-ring{fill:none;stroke:var(--line);stroke-width:6}
+.svg-ring2{fill:none;stroke:var(--muted);stroke-width:1.5}
+.smd{transition:fill .05s}
+
+@media (max-width:980px){
+  .hero,.work,.flash-grid,.about-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:560px){
+  html{font-size:16px}
+  .leds{gap:9px;padding:6px 10px;order:5;width:100%;justify-content:space-between}
+  .ind .v{display:none}
+  .frow{grid-template-columns:minmax(0,1fr) 92px 34px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="brand">
+    <div class="mark" aria-hidden="true"><i id="markPx"></i></div>
+    <div><h1>NeedleBench</h1><small>ESP32-S3 · Needle on-device tool calling</small></div>
+  </div>
+  <span class="spacer"></span>
+  <div class="leds" role="group" aria-label="Connection indicators">
+    <span class="ind" title="USB serial port opened by this page"><span class="l" id="ledLink"></span>LINK <span class="v" id="ledLinkV">off</span></span>
+    <span class="ind" title="What the board is doing"><span class="l" id="ledBoard"></span>BOARD <span class="v" id="ledBoardV">–</span></span>
+    <span class="ind" title="Data sent to the board"><span class="l" id="ledTx"></span>TX</span>
+    <span class="ind" title="Data received from the board"><span class="l" id="ledRx"></span>RX</span>
+  </div>
+  <button class="primary" id="connectBtn">Connect board</button>
+  <button id="resetBtn" disabled title="Pulse EN to reboot the board">Reset</button>
+  <button class="theme" id="themeBtn" title="Switch light / dark">Theme</button>
+</header>
+
+<div class="banner" id="banner" role="alert"></div>
+
+<details class="about panel" id="about">
+  <summary>About NeedleBench <span>what it is, how it works, related tools</span></summary>
+  <div class="about-grid">
+    <div>
+      <h3>What it is</h3>
+      <p>A local, browser-based workbench for ESP32-S3 boards running <b>Needle 2</b>, Cactus Compute's 45M-parameter tool-calling model, ported to the chip by <a href="https://github.com/andrisgauracs/needle-2-esp32" target="_blank" rel="noopener">needle-2-esp32</a>. You type a request; the model, running entirely on the microcontroller, answers with a JSON tool call that drives the on-board NeoPixel. Nothing is sent to a server. The page talks straight to the board over USB.</p>
+      <h3>How it works</h3>
+      <ol>
+        <li><b>Web Serial.</b> Chrome or Edge opens the board's USB-UART bridge directly. Web Serial only works on secure origins, so the page is served over HTTPS (GitHub Pages) or from <code>localhost</code>.</li>
+        <li><b>Line protocol.</b> The firmware prints one message per line. <code>EVT</code> lines report status, <code>TOK</code> streams one token, <code>CONF</code> gives groundedness and <code>ACT</code> reports what the hardware did. The LINK, BOARD, TX and RX lights show this traffic.</li>
+        <li><b>Inference.</b> The 13.1 MB model is memory-mapped from its own flash partition and the KV cache lives in octal PSRAM. The tool schema is primed once per boot (about 52 s). After that each token takes about 0.55 s across both cores.</li>
+        <li><b>Grammar-constrained decoding.</b> Every reply is a call that matches the schema compiled into the firmware, or the empty call <code>[]</code>. The model is a dispatcher, not a chatbot.</li>
+        <li><b>Flashing.</b> Uses Espressif's <a href="https://github.com/espressif/esptool-js" target="_blank" rel="noopener">esptool-js</a> 0.6.1, bundled locally so it works offline. Every image is verified by MD5 against the flash after writing.</li>
+      </ol>
+      <h3>Board requirements</h3>
+      <p>ESP32-S3 with <b>16 MB flash</b> and <b>8 MB octal PSRAM</b> (an "N16R8" module), a WS2812 NeoPixel on <b>GPIO48</b>, and the console on the <b>UART bridge</b> port, not the native USB port.</p>
+      <table class="map" aria-label="Flash layout">
+        <tr><th>Offset</th><th>Region</th><th>Size</th></tr>
+        <tr><td>0x0</td><td>bootloader</td><td>≈21 KB</td></tr>
+        <tr><td>0x8000</td><td>partition table</td><td>3 KB</td></tr>
+        <tr><td>0x10000</td><td>app (factory)</td><td>2 MB slot</td></tr>
+        <tr><td>0x210000</td><td>model (data 0x40)</td><td>13.1 MB slot</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Related web-based tools</h3>
+      <ul class="links">
+        <li><a href="https://espressif.github.io/esptool-js/" target="_blank" rel="noopener">Espressif esptool-js</a><span>Official in-browser flasher and console for every ESP chip. This page's flasher uses its library.</span></li>
+        <li><a href="https://esphome.github.io/esp-web-tools/" target="_blank" rel="noopener">ESP Web Tools</a><span>Drop-in "Install" button for publishing your own firmware with a manifest, plus Wi-Fi provisioning.</span></li>
+        <li><a href="https://adafruit.github.io/Adafruit_WebSerial_ESPTool/" target="_blank" rel="noopener">Adafruit WebSerial ESPTool</a><span>Erase and program files at custom offsets.</span></li>
+        <li><a href="https://esptool.spacehuhn.com/" target="_blank" rel="noopener">Spacehuhn ESPWebTool</a><span>Minimal multi-file ESP flasher in the browser.</span></li>
+        <li><a href="https://googlechromelabs.github.io/serial-terminal/" target="_blank" rel="noopener">Chrome Labs Serial Terminal</a><span>Plain Web Serial terminal with baud, parity and flow-control settings.</span></li>
+        <li><a href="https://geo-tp.github.io/ESP32-Bit-Pirate/web-tools/" target="_blank" rel="noopener">ESP32 Bit Pirate web tools</a><span>Browser terminal, SPI flash programmer, logic analyser, STM32 and AVR tools.</span></li>
+        <li><a href="https://github.com/webmcu-ai/webmcu-vision-web" target="_blank" rel="noopener">webmcu-vision-web</a><span>Web Serial companion for training a small vision model for the XIAO ESP32-S3 Sense.</span></li>
+        <li><a href="https://cactuscompute.com/needle" target="_blank" rel="noopener">Cactus Needle</a><span>The model family's home page, including a WebAssembly sandbox for Needle 3.</span></li>
+        <li><a href="https://github.com/eric-humane/esp32-llm" target="_blank" rel="noopener">esp32-llm (web UI fork)</a><span>Tiny story LLM on an ESP32-S3, with a chat page served over the board's own Wi-Fi.</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="credits">
+    <h3>Credits &amp; licences</h3>
+    <ul>
+      <li><b>NeedleBench</b> by <a href="https://github.com/saadcaffeine" target="_blank" rel="noopener">saadcaffeine</a>: web tool, board illustration, and the v1.1 firmware variants (kettle simulator, profiler build, <code>EVT fw</code>/<code>EVT tools</code>/<code>!info</code> protocol additions). Apache-2.0.</li>
+      <li><b>Needle 2</b> model and weights by <a href="https://github.com/cactus-compute/needle" target="_blank" rel="noopener">Cactus Compute</a>, Apache-2.0 (<a href="https://huggingface.co/Cactus-Compute/needle2" target="_blank" rel="noopener">Hugging Face</a>). Architecture: <a href="https://arxiv.org/abs/2607.18363" target="_blank" rel="noopener">arXiv:2607.18363</a>.</li>
+      <li><b>needle-2-esp32</b> by <a href="https://github.com/andrisgauracs/needle-2-esp32" target="_blank" rel="noopener">andrisgauracs</a>: the C99 <code>.cact</code> inference engine and ESP-IDF demo firmware these builds are based on. Apache-2.0. NeedleBench is a fork; the firmware changes and this page live in <a href="https://github.com/saadcaffeine/needlebench" target="_blank" rel="noopener">saadcaffeine/needlebench</a>.</li>
+      <li><b>ESP-IDF</b> v5.5 by <a href="https://github.com/espressif/esp-idf" target="_blank" rel="noopener">Espressif Systems</a>, Apache-2.0, used to build the firmware. Bundled components carry their own licences, e.g. FreeRTOS (MIT).</li>
+      <li><b>esptool-js</b> 0.6.1 by <a href="https://github.com/espressif/esptool-js" target="_blank" rel="noopener">Espressif Systems</a>, Apache-2.0. Bundled with <b>pako</b> 2.2.0 (MIT AND Zlib), <b>atob-lite</b> 2.0.0 (MIT, Hugh Kennedy), <b>tslib</b> (0BSD, Microsoft) and <b>spark-md5</b> 3.0.2 (WTFPL or MIT, André Cruz).</li>
+      <li>Full licence texts: <a href="THIRD_PARTY_NOTICES.md">THIRD_PARTY_NOTICES.md</a> and the project <a href="https://github.com/saadcaffeine/needlebench/blob/main/LICENSE" target="_blank" rel="noopener">LICENSE</a>.</li>
+    </ul>
+    <p class="fine">ESP32 and Espressif are trademarks of Espressif Systems; NeoPixel is a trademark of Adafruit Industries, used here descriptively for WS2812 LEDs. The board drawing is an original illustration, not official artwork. NeedleBench is an independent project, not affiliated with or endorsed by Espressif, Cactus Compute or Adafruit. It is experimental hobbyist software, provided as is, without warranty. Do not use model output to switch mains appliances without independent hardware safety limits.</p>
+  </div>
+</details>
+
+<section class="hero" aria-label="Board">
+  <div class="panel board-card">
+    <svg id="boardSvg" viewBox="0 0 800 360" role="img" aria-labelledby="svgTitle svgDesc">
+      <title id="svgTitle">ESP32-S3 board illustration</title>
+      <desc id="svgDesc">Illustrated ESP32-S3 development board with a magnified view of the NeoPixel on GPIO48.</desc>
+      <defs>
+        <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--shield-a)"/><stop offset="1" stop-color="var(--shield-b)"/></linearGradient>
+        <radialGradient id="glowG"><stop offset="0" stop-color="#fff" stop-opacity=".9" id="glowS0"/><stop offset=".35" stop-color="#888" stop-opacity=".55" id="glowS1"/><stop offset="1" stop-color="#888" stop-opacity="0" id="glowS2"/></radialGradient>
+        <radialGradient id="dieG" cx=".45" cy=".4"><stop offset="0" stop-color="#ffffff" id="dieS0"/><stop offset=".6" stop-color="#d8d8d8" id="dieS1"/><stop offset="1" stop-color="#bdbdbd" id="dieS2"/></radialGradient>
+        <clipPath id="loupeClip"><circle cx="440" cy="82" r="70"/></clipPath>
+        <pattern id="pins" x="0" y="0" width="26" height="26" patternUnits="userSpaceOnUse"><rect x="5" y="5" width="16" height="16" rx="3" class="svg-pad"/><circle cx="13" cy="13" r="4" class="svg-hole"/></pattern>
+      </defs>
+
+      <!-- cable -->
+      <g id="cable" opacity="0">
+        <path class="svg-cable" d="M676 206 C 730 206, 740 150, 792 130"/>
+        <rect x="664" y="196" width="26" height="20" rx="4" fill="#4a4b4f"/>
+        <text x="792" y="114" text-anchor="end" class="svg-lbl" font-size="12" id="cableLbl">USB</text>
+      </g>
+
+      <!-- PCB -->
+      <rect x="20" y="150" width="648" height="192" rx="12" class="svg-pcb"/>
+      <circle cx="38" cy="168" r="7" fill="var(--bg)"/><circle cx="650" cy="168" r="7" fill="var(--bg)"/>
+      <circle cx="38" cy="324" r="7" fill="var(--bg)"/><circle cx="650" cy="324" r="7" fill="var(--bg)"/>
+      <!-- headers 2x22 -->
+      <rect x="56" y="152" width="572" height="26" fill="url(#pins)"/>
+      <rect x="56" y="314" width="572" height="26" fill="url(#pins)"/>
+      <text x="58" y="194" class="svg-silk" font-size="9">3V3</text><text x="604" y="194" class="svg-silk" font-size="9">GND</text>
+      <text x="58" y="307" class="svg-silk" font-size="9">GND</text><text x="606" y="307" class="svg-silk" font-size="9">5V</text>
+
+      <!-- module -->
+      <rect x="44" y="198" width="300" height="104" rx="4" class="svg-mod"/>
+      <path d="M54 212 h22 v12 h-16 v12 h16 v12 h-16 v12 h16 v12 h-16 v12 h22" stroke="#c9a448" stroke-width="3" fill="none" opacity=".85"/>
+      <text x="64" y="296" class="svg-silk" font-size="8" opacity=".7">ANT</text>
+      <rect x="110" y="204" width="226" height="92" rx="3" fill="url(#shield)"/>
+      <text x="124" y="228" class="svg-ink" font-size="13" font-weight="700">ESP32-S3-WROOM-1</text>
+      <text x="124" y="246" class="svg-ink" font-size="11" id="svgVariant">N16R8 · 16MB / 8MB PSRAM</text>
+      <text x="124" y="266" class="svg-ink" font-size="10" id="svgMac">MAC ––:––:––:––:––:––</text>
+      <text x="124" y="284" class="svg-ink" font-size="10" id="svgFw">firmware: unknown</text>
+
+      <!-- small parts -->
+      <rect x="380" y="214" width="34" height="18" rx="2" fill="#2c2f33"/><text x="381" y="246" class="svg-silk" font-size="8">LDO</text>
+      <rect x="384" y="268" width="26" height="26" rx="2" fill="#2c2f33"/><text x="381" y="306" class="svg-silk" font-size="8">UART</text>
+      <!-- buttons -->
+      <g><rect x="548" y="196" width="26" height="22" rx="3" fill="#cfd2d6"/><circle cx="561" cy="207" r="6" fill="#55585d"/><text x="547" y="232" class="svg-silk" font-size="9">BOOT</text></g>
+      <g><rect x="548" y="272" width="26" height="22" rx="3" fill="#cfd2d6"/><circle cx="561" cy="283" r="6" fill="#55585d"/><text x="551" y="306" class="svg-silk" font-size="9">RST</text></g>
+      <!-- status smd leds -->
+      <rect x="604" y="236" width="9" height="5" rx="1" class="smd" id="smdLink" fill="#5b2a26"/><text x="600" y="232" class="svg-silk" font-size="7">PWR</text>
+      <rect x="616" y="196" width="9" height="5" rx="1" class="smd" id="smdTx" fill="#5a4320"/><text x="628" y="201" class="svg-silk" font-size="7">TX</text>
+      <rect x="616" y="208" width="9" height="5" rx="1" class="smd" id="smdRx" fill="#24452f"/><text x="628" y="213" class="svg-silk" font-size="7">RX</text>
+      <!-- usb-c ports -->
+      <rect x="652" y="194" width="26" height="24" rx="6" fill="#a9adb3" stroke="#6d7177"/><rect x="657" y="202" width="16" height="8" rx="3" fill="#3a3d42"/>
+      <rect x="652" y="262" width="26" height="24" rx="6" fill="#a9adb3" stroke="#6d7177"/><rect x="657" y="270" width="16" height="8" rx="3" fill="#3a3d42"/>
+      <text x="636" y="230" class="svg-silk" font-size="8" text-anchor="end" id="lblUart">UART</text>
+      <text x="636" y="298" class="svg-silk" font-size="8" text-anchor="end">USB</text>
+
+      <!-- NeoPixel on board -->
+      <circle cx="482" cy="252" r="36" fill="url(#glowG)" id="boardGlow" opacity="0"/>
+      <rect x="473" y="243" width="18" height="18" rx="2" fill="#f2efe8" stroke="#bdb8ad"/>
+      <circle cx="482" cy="252" r="6" fill="url(#dieG)" id="boardDie"/>
+      <text x="470" y="276" class="svg-silk" font-size="8">RGB · IO48</text>
+
+      <!-- leader lines -->
+      <path class="svg-lead" d="M474 244 L 390 128"/><path class="svg-lead" d="M490 244 L 500 140"/>
+
+      <!-- loupe -->
+      <g clip-path="url(#loupeClip)">
+        <circle cx="440" cy="82" r="70" fill="var(--loupe-bg)"/>
+        <circle cx="440" cy="82" r="80" fill="url(#glowG)" id="loupeGlow" opacity="0"/>
+        <rect x="398" y="40" width="84" height="84" rx="9" fill="#f4f1ea" stroke="#cfc9bd" stroke-width="2"/>
+        <circle cx="440" cy="82" r="30" fill="#e7e3da" stroke="#cfc9bd"/>
+        <circle cx="440" cy="82" r="26" fill="url(#dieG)" id="loupeDie"/>
+        <rect x="428" y="72" width="7" height="7" rx="1" fill="#9a8f7a" opacity=".55"/>
+        <rect x="442" y="72" width="7" height="7" rx="1" fill="#9a8f7a" opacity=".55"/>
+        <rect x="435" y="86" width="7" height="7" rx="1" fill="#9a8f7a" opacity=".55"/>
+        <path d="M398 52 l8 -8" stroke="#cfc9bd" stroke-width="4"/>
+      </g>
+      <circle cx="440" cy="82" r="70" class="svg-ring"/>
+      <circle cx="440" cy="82" r="73" class="svg-ring2"/>
+      <text x="356" y="36" text-anchor="end" class="svg-strong" font-size="15">NeoPixel</text>
+      <text x="356" y="54" text-anchor="end" class="svg-lbl" font-size="11">WS2812 · GPIO48</text>
+      <text x="356" y="80" text-anchor="end" class="svg-strong" font-size="13" id="loupeState">off</text>
+      <text x="356" y="96" text-anchor="end" class="svg-lbl" font-size="11" id="loupeWire">rgb(0, 0, 0)</text>
+    </svg>
+    <dl class="facts" id="facts">
+      <div><dt>Adapter</dt><dd id="fAdapter">–</dd></div>
+      <div><dt>Chip</dt><dd id="fChip">–</dd></div>
+      <div><dt>Memory</dt><dd id="fMem">–</dd></div>
+      <div><dt>Firmware</dt><dd id="fFw">–</dd></div>
+      <div><dt>Model</dt><dd id="fModel">–</dd></div>
+      <div><dt>Speed</dt><dd id="fSpeed">–</dd></div>
+    </dl>
+  </div>
+
+  <div class="panel readout" aria-labelledby="roH">
+    <h2 id="roH">NeoPixel output</h2>
+    <div class="act" id="act">Idle</div>
+    <div class="sub" id="actSub">Connect a board to begin</div>
+    <div class="wire"><span class="sw" id="wireSw"></span><span id="wireTxt">wire rgb(0, 0, 0)</span></div>
+    <div class="meter dur"><div class="row"><span id="durLbl">Duration</span><span id="durVal">–</span></div><div class="bar"><i id="durFill"></i></div></div>
+    <div class="meter conf"><div class="row"><span>Groundedness</span><span id="confVal">–</span></div><div class="bar"><i id="confFill"></i></div></div>
+    <dl class="stats">
+      <dt>Prefill</dt><dd id="sPre">–</dd>
+      <dt>Generate</dt><dd id="sGen">–</dd>
+      <dt>Round trip</dt><dd id="sTot">–</dd>
+    </dl>
+    <h2 style="margin-top:16px">Tools in firmware</h2>
+    <div class="tools" id="toolList"><span class="tool">unknown until the board reports in</span></div>
+  </div>
+</section>
+
+<section class="work">
+  <div class="panel" aria-labelledby="askH">
+    <h2 id="askH">Console</h2>
+    <form class="ask" id="askForm">
+      <label for="q" class="sr">Request to the model</label>
+      <input type="text" id="q" autocomplete="off" placeholder="Type a request…" disabled>
+      <button class="primary" id="sendBtn" disabled>Send</button>
+    </form>
+    <div class="chips" id="chips" aria-label="Example requests"></div>
+    <div class="opts">
+      <label><input type="checkbox" id="think" checked> Show reasoning (≈2× slower)</label>
+      <label><input type="checkbox" id="speak"> Speak results</label>
+    </div>
+    <div class="prog" id="prog" hidden><div class="bar"><i id="progFill"></i></div><div class="lbl" id="progLbl"></div></div>
+    <div class="stream" id="stream"><span class="ph">Model output streams here, one token at a time.</span></div>
+    <p class="hint">Press <kbd>Enter</kbd> to send. macOS dictation (<kbd>fn</kbd> <kbd>fn</kbd>) types into the box. Only one app can hold the serial port at a time.</p>
+  </div>
+  <div class="panel history" aria-labelledby="hH">
+    <h2 id="hH">History</h2>
+    <ol id="hist"><li style="grid-template-columns:1fr"><span class="t">No requests yet</span></li></ol>
+    <details class="raw" id="profBox" hidden><summary>Boot profile</summary><pre class="log" id="prof"></pre></details>
+  </div>
+</section>
+
+<section class="panel flash" aria-labelledby="fH">
+  <div class="flash-head"><h2 id="fH">Flash firmware</h2><span class="spacer"></span>
+    <button id="chipBtn" disabled title="Enter the ROM bootloader, read chip details, then reboot">Read chip info</button>
+  </div>
+  <div class="flash-grid">
+    <div>
+      <p class="step"><i>1</i>Firmware</p>
+      <div class="cards" id="presetCards"></div>
+      <div class="custom" id="customBox">
+        <div id="customRows"></div>
+        <div class="quick">
+          <button type="button" data-off="0x0">+ bootloader @0x0</button>
+          <button type="button" data-off="0x8000">+ partitions @0x8000</button>
+          <button type="button" data-off="0x10000">+ app @0x10000</button>
+          <button type="button" data-off="0x0" data-merged="1">+ merged image @0x0</button>
+        </div>
+        <p class="note">Offsets are hex and should be 4 KB aligned. Your app can reuse the Needle model if it keeps the same partition table: a data partition, subtype <code>0x40</code>, at <code>0x210000</code>.</p>
+      </div>
+    </div>
+    <div>
+      <p class="step"><i>2</i>Model weights (@0x210000)</p>
+      <div class="radio-list" id="modelSrc">
+        <label><input type="radio" name="model" value="keep" checked><span>Keep the model already on the board<small>Fastest. Firmware only, about 10 s</small></span></label>
+        <label id="localModelOpt"><input type="radio" name="model" value="local"><span>Needle 2 hosted with this page<small><code>model/needle2.cact</code>, 13.7 MB, about 3.5 min</small></span></label>
+        <label><input type="radio" name="model" value="hf"><span>Needle 2 from Hugging Face<small>Downloads Cactus-Compute/needle2 first (needs internet)</small></span></label>
+        <label><input type="radio" name="model" value="file"><span>Choose a .cact file…<small>Must fit the 13.1 MB partition</small></span></label>
+      </div>
+      <input type="file" id="modelFile" accept=".cact,.bin" hidden>
+      <p class="step" style="margin-top:16px"><i>3</i>Options</p>
+      <div class="flash-opts">
+        <label>Baud <select id="baud"><option>115200</option><option>460800</option><option selected>921600</option></select></label>
+        <label><input type="checkbox" id="eraseAll"> Erase entire chip first</label>
+      </div>
+      <div class="warn" id="flashWarn" hidden></div>
+      <div class="plan" id="plan"></div>
+      <div class="flash-actions">
+        <button class="primary" id="flashBtn" disabled>Flash</button>
+        <span class="note" id="flashNote">Connect a board to enable flashing.</span>
+      </div>
+      <pre class="log" id="flog" hidden></pre>
+    </div>
+  </div>
+</section>
+
+<details class="raw">
+  <summary>Raw serial log</summary>
+  <pre class="log" id="log"></pre>
+</details>
+<div class="sr" aria-live="assertive" id="announce"></div>
+<footer class="foot">
+  <span>NeedleBench by <a href="https://github.com/saadcaffeine" target="_blank" rel="noopener">saadcaffeine</a> · <a href="https://github.com/saadcaffeine/needlebench" target="_blank" rel="noopener">source</a></span>
+  <span>Needle 2 © Cactus Compute</span>
+  <span>engine: <a href="https://github.com/andrisgauracs/needle-2-esp32" target="_blank" rel="noopener">needle-2-esp32</a></span>
+  <span>flasher: esptool-js © Espressif</span>
+  <span>Apache-2.0</span>
+</footer>
+</div>
+
+<script>
+/* Give a clear message when opened straight from disk (module imports fail there). */
+if (location.protocol === 'file:') {
+  addEventListener('DOMContentLoaded', () => { const b = document.getElementById('banner');
+    b.textContent = 'NeedleBench needs to be served over HTTPS or from localhost. Opened straight from disk, the browser blocks Web Serial and the flasher. Use the GitHub Pages site, or run python3 -m http.server in this folder.'; b.classList.add('show'); });
+}
+</script>
+<script type="module">
+import { ESPLoader, Transport, md5hex } from './vendor/flasher-bundle.js';
+
+const $ = id => document.getElementById(id);
+const store = { get(k, d) { try { const v = localStorage.getItem('nb.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem('nb.' + k, JSON.stringify(v)); } catch {} } };
+
+/* ------------------------------------------------------------ catalogue */
+const PRESETS = [
+  { id:'needle2-led', name:'Needle 2 · LED demo', tag:'stock', fw:'needle2-led-1.1',
+    desc:'The repo demo. set_led picks colour, solid or blink, and duration.' },
+  { id:'needle2-led-prof', name:'Needle 2 · LED + profiler', fw:'needle2-led-prof-1.1',
+    desc:'Same tools. Prints per-phase milliseconds at boot (attention, GEMV, logits…). Slightly slower.' },
+  { id:'needle2-kettle', name:'Needle 2 · Kettle simulator', tag:'voiceKettle', fw:'needle2-kettle-1.1',
+    desc:'set_kettle (40–100 °C, keep warm) and stop_kettle. The NeoPixel shows target heat, blue to red. No heater is driven. Off-topic requests resolve to stop.' },
+  { id:'needle3', name:'Needle 3', off:true,
+    desc:'Not supported by this engine yet. It reads the Needle 2 .cact layout.' },
+  { id:'custom', name:'Custom firmware', tag:'your build',
+    desc:'Flash your own .bin files at chosen offsets, e.g. a fork with your own tools.json.' },
+];
+const FILES = [['bootloader.bin',0x0],['partition-table.bin',0x8000],['app.bin',0x10000]];
+const MODEL_ADDR = 0x210000, MODEL_MAX = 0xD20000;
+const HF_URL = 'https://huggingface.co/Cactus-Compute/needle2/resolve/main/needle2.cact';
+const EXAMPLES = {
+  set_led: ['turn the light blue for three seconds','flash red light for two seconds','make it purple','blink yellow for ten seconds'],
+  set_kettle: ['boil the kettle','heat water to 80 degrees and keep it warm','make me green tea, about seventy degrees','I want water at 90 for coffee'],
+  stop_kettle: ['turn the kettle off'],
+};
+const OFFTOPIC = "what's the weather like";
+const PALETTE = { red:[64,0,0], green:[0,64,0], blue:[0,0,64], yellow:[48,40,0], purple:[40,0,56], white:[40,40,40] };
+const ADAPTERS = { '0403:6001':'FTDI FT232R', '0403:6015':'FTDI FT231X', '0403:6010':'FTDI FT2232', '10c4:ea60':'Silicon Labs CP210x',
+  '1a86:7523':'WCH CH340', '1a86:55d3':'WCH CH343', '1a86:55d4':'WCH CH9102', '303a:1001':'ESP32-S3 native USB', '303a:4001':'Espressif USB bridge' };
+
+/* ------------------------------------------------------------ state */
+const S = { port:null, reader:null, writer:null, reading:false, closing:null,
+  ready:false, busy:false, flashing:false, fw:null, tools:null, turn:null, history:[], chip:store.get('chip', null) };
+
+/* ------------------------------------------------------------ indicators */
+function led(id, s, v) { $(id).dataset.s = s || ''; if (v !== undefined) $(id + 'V').textContent = v; }
+const SMD = { smdLink:['#5b2a26','#ff4b3e'], smdTx:['#5a4320','#ffb43a'], smdRx:['#24452f','#41e27f'] };
+function smd(id, on) { $(id).setAttribute('fill', SMD[id][on ? 1 : 0]); }
+let txT, rxT;
+function pulseTx() { led('ledTx', 'tx'); smd('smdTx', 1); clearTimeout(txT); txT = setTimeout(() => { led('ledTx', ''); smd('smdTx', 0); }, 70); }
+function pulseRx() { led('ledRx', 'rx'); smd('smdRx', 1); clearTimeout(rxT); rxT = setTimeout(() => { led('ledRx', ''); smd('smdRx', 0); }, 50); }
+function linkState(s, v) { led('ledLink', s, v); smd('smdLink', s === 'on' || s === 'busy'); $('cable').setAttribute('opacity', s === 'on' || s === 'busy' || s === 'flash' ? 1 : 0); }
+function boardState(s, v) { led('ledBoard', s, v); }
+
+function banner(msg) { $('banner').textContent = msg || ''; $('banner').classList.toggle('show', !!msg); }
+function announce(msg) { $('announce').textContent = ''; setTimeout(() => $('announce').textContent = msg, 40);
+  if ($('speak').checked && 'speechSynthesis' in window) { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(msg)); } }
+function log(line) { const l = $('log'); l.textContent += line + '\n'; if (l.textContent.length > 80000) l.textContent = l.textContent.slice(-50000); l.scrollTop = l.scrollHeight; }
+function prog(show, pct, lbl) { $('prog').hidden = !show; $('progFill').style.width = (pct || 0) + '%'; $('progLbl').textContent = lbl || ''; }
+
+/* ------------------------------------------------------------ NeoPixel */
+const disp = v => Math.round(255 * Math.pow(Math.max(0, Math.min(64, v)) / 64, 0.6));
+function setPixel(rgb, label) {
+  const [r, g, b] = rgb || [0, 0, 0], on = r + g + b > 0;
+  const css = `rgb(${disp(r)},${disp(g)},${disp(b)})`;
+  const k = Math.max(r, g, b) / 64;
+  for (const id of ['glowS1', 'glowS2']) $(id).setAttribute('stop-color', css);
+  $('glowS0').setAttribute('stop-color', on ? '#fff' : '#000');
+  for (const g2 of ['boardGlow', 'loupeGlow']) $(g2).setAttribute('opacity', on ? (0.35 + 0.65 * k).toFixed(2) : 0);
+  $('dieS0').setAttribute('stop-color', on ? '#ffffff' : '#f3f3f3');
+  $('dieS1').setAttribute('stop-color', on ? css : '#d6d6d6');
+  $('dieS2').setAttribute('stop-color', on ? css : '#bcbcbc');
+  $('wireSw').style.background = on ? css : '#222';
+  $('wireTxt').textContent = `wire rgb(${r}, ${g}, ${b})`;
+  $('loupeWire').textContent = `rgb(${r}, ${g}, ${b})`;
+  if (label !== undefined) $('loupeState').textContent = label;
+  else if (!on) $('loupeState').textContent = 'off';
+  document.documentElement.style.setProperty('--px', on ? css : '#2a2b2e');
+  document.documentElement.style.setProperty('--px-glow', on ? css : 'transparent');
+}
+let seqId = 0;
+async function playSeq(steps, label, total) {
+  const my = ++seqId; const t0 = performance.now();
+  const tick = () => { if (my !== seqId) return; const p = Math.min(1, (performance.now() - t0) / total);
+    $('durFill').style.width = (100 * (1 - p)) + '%'; $('durVal').textContent = Math.max(0, (total - (performance.now() - t0)) / 1000).toFixed(1) + ' s';
+    if (p < 1) requestAnimationFrame(tick); };
+  if (total) requestAnimationFrame(tick);
+  for (const [rgb, ms] of steps) { if (my !== seqId) return; setPixel(rgb, label); await new Promise(r => setTimeout(r, ms)); }
+  if (my === seqId) { setPixel(null); $('durFill').style.width = '0'; $('durVal').textContent = 'done'; }
+}
+const scale = (c, f) => c.map(v => Math.round(v * f));
+function kettleColor(t) { let f = (t - 40) / 60; f = Math.max(0, Math.min(1, f));
+  return [Math.round(64 * f), Math.round(16 * (1 - (f > .5 ? (f - .5) * 2 : (.5 - f) * 2))), Math.round(64 * (1 - f))]; }
+
+/* ------------------------------------------------------------ serial console */
+async function openConsole() {
+  await S.port.open({ baudRate: 115200, bufferSize: 16384 });
+  await S.port.setSignals({ dataTerminalReady: false, requestToSend: false });   // EN high, IO0 high: run normally
+  S.writer = S.port.writable.getWriter();
+  S.reading = true; S.closing = readLoop();
+  linkState('on', 'open');
+}
+async function closeConsole() {
+  S.reading = false;
+  try { await S.reader?.cancel(); } catch {}
+  try { await S.closing; } catch {}
+  try { S.writer?.releaseLock(); } catch {}
+  S.writer = null;
+  try { await S.port?.close(); } catch {}
+}
+async function readLoop() {
+  const dec = new TextDecoder(); let buf = '';
+  while (S.reading && S.port?.readable) {
+    S.reader = S.port.readable.getReader();
+    try {
+      for (;;) { const { value, done } = await S.reader.read(); if (done) break; pulseRx();
+        buf += dec.decode(value, { stream: true }); let i;
+        while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).replace(/\r$/, ''); buf = buf.slice(i + 1); try { handle(line); } catch (e) { console.error(e); } } }
+    } catch (e) { if (S.reading) { log('! read error: ' + e.message); } }
+    finally { try { S.reader.releaseLock(); } catch {} S.reader = null; }
+  }
+}
+async function send(text) { if (!S.writer) return; pulseTx(); log('> ' + text); await S.writer.write(new TextEncoder().encode(text + '\n')); }
+
+function adapterName(port) { const i = port.getInfo(); if (!i.usbVendorId) return 'serial port';
+  const k = i.usbVendorId.toString(16).padStart(4, '0') + ':' + i.usbProductId.toString(16).padStart(4, '0');
+  return (ADAPTERS[k] || 'USB serial') + ' (' + k + ')'; }
+
+$('connectBtn').onclick = async () => {
+  if (S.port) return disconnect();
+  try {
+    const port = await navigator.serial.requestPort();
+    S.port = port; linkState('wait', 'opening');
+    await openConsole();
+    const ad = adapterName(port); $('fAdapter').textContent = ad; $('cableLbl').textContent = ad.replace(/ \(.*/, '') + ' → computer';
+    if (/native USB/.test(ad)) banner('This is the chip\'s native USB port. The Needle console runs on the UART port, so plug into that one (flashing still works here).');
+    else banner('');
+    $('connectBtn').textContent = 'Disconnect';
+    boardState('wait', 'probing'); probe();
+    renderChip(); updateFlashUi(); setInputs();
+  } catch (e) {
+    S.port = null; linkState('', 'off');
+    if (e.name !== 'NotFoundError') { linkState('err', 'error'); banner('Could not open the port: ' + e.message + '. Is another program, such as a terminal or esptool, using it?'); }
+  }
+};
+let probeT;
+function probe() {
+  send('!think ' + ($('think').checked ? 1 : 0));
+  clearTimeout(probeT);
+  probeT = setTimeout(() => { if (!S.ready && S.port && !S.flashing && $('ledBoard').dataset.s === 'wait')
+    boardState('err', 'silent'), $('actSub').textContent = 'No reply yet. Press Reset to reboot, or flash Needle firmware below.'; }, 4000);
+}
+async function disconnect() {
+  await closeConsole(); S.port = null; S.ready = false; S.busy = false;
+  linkState('', 'off'); boardState('', '–'); $('connectBtn').textContent = 'Connect board'; prog(false); setInputs(); updateFlashUi();
+}
+navigator.serial?.addEventListener('disconnect', e => { if (e.target === S.port && !S.flashing) { banner('Board unplugged.'); disconnect(); linkState('err', 'unplugged'); } });
+
+$('resetBtn').onclick = async () => {
+  if (!S.port || S.flashing) return;
+  S.ready = false; setInputs(); log('--- reset ---');
+  await S.port.setSignals({ dataTerminalReady: false, requestToSend: true }); pulseTx();
+  await new Promise(r => setTimeout(r, 150));
+  await S.port.setSignals({ dataTerminalReady: false, requestToSend: false });
+  bootSeen();
+};
+function bootSeen() { S.ready = false; S.busy = false; setInputs(); boardState('boot', 'booting'); prog(true, 0, 'Booting…'); setPixel([0, 0, 8], 'booting'); }
+
+/* ------------------------------------------------------------ protocol */
+function handle(line) {
+  if (!line.startsWith('TOK ') && !line.startsWith('EVT reading')) log(line);
+  let m;
+  if (line.startsWith('ESP-ROM') || line.startsWith('rst:0x')) { bootSeen(); $('act').textContent = 'Booting'; $('actSub').textContent = 'ROM bootloader started'; }
+  else if ((m = line.match(/^EVT fw id=(\S+)/))) { S.fw = m[1]; $('fFw').textContent = S.fw; $('svgFw').textContent = 'firmware: ' + S.fw; }
+  else if (line.startsWith('EVT tools ')) { try { S.tools = JSON.parse(line.slice(10)); } catch { S.tools = null; } renderTools(); }
+  else if ((m = line.match(/^EVT mapped partition=(\d+)/))) { $('fModel').textContent = `mapped ${(m[1] / 1048576).toFixed(1)} MB @0x210000`; }
+  else if (line.startsWith('EVT ready ')) {
+    const g = k => (line.match(new RegExp(k + '=(\\d+)')) || [])[1];
+    $('fModel').textContent = `needle2 · ${g('layers')} layers · window ${g('window')}`;
+    $('fMem').textContent = `PSRAM free ${(g('psram_free') / 1048576).toFixed(1)} MB · SRAM ${Math.round(g('internal_free') / 1024)} KB`;
+    if (!S.tools) renderTools();
+  }
+  else if ((m = line.match(/^EVT priming (\d+)\/(\d+)\s+(\d+)%.*eta=(\d+)s/))) {
+    S.ready = false; setInputs(); boardState('boot', 'priming');
+    prog(true, +m[3], `Priming schema ${m[1]}/${m[2]} tokens · ~${m[4]} s left (once per boot)`);
+    $('act').textContent = 'Priming'; $('actSub').textContent = 'Reading the tool schema into the KV cache';
+    if ($('loupeState').textContent === 'off') setPixel([0, 0, 8], 'booting');
+  }
+  else if ((m = line.match(/^EVT bench .*ms_per_tok=(\d+)/))) { if (+m[1]) $('fSpeed').textContent = `${m[1]} ms/token · ${(1000 / m[1]).toFixed(2)} tok/s`; }
+  else if ((m = line.match(/^EVT prof (\S+)\s+([\d.]+) ms\s+([\d.]+)%/))) { $('profBox').hidden = false; $('prof').textContent += `${m[1].padEnd(10)} ${m[2].padStart(7)} ms  ${m[3].padStart(5)}%\n`; }
+  else if (line.includes('READY - type')) { becomeReady(true); }
+  else if ((m = line.match(/^EVT think=(\d)(?: fw=(\S+))?/))) {
+    $('think').checked = m[1] === '1';
+    if (m[2] && !S.tools) { S.fw = m[2]; $('fFw').textContent = S.fw; $('svgFw').textContent = 'firmware: ' + S.fw; send('!info'); }
+    if (!m[2] && !S.fw) { $('fFw').textContent = 'stock / unknown (no !info)'; $('svgFw').textContent = 'firmware: stock'; }
+    becomeReady(false);
+  }
+  else if ((m = line.match(/^EVT reading (\d+)\/(\d+)/))) { prog(true, 100 * m[1] / m[2], `Reading request ${m[1]}/${m[2]} tokens`); }
+  else if ((m = line.match(/^EVT prefill tokens=(\d+) ms=(\d+)/))) { if (S.turn) $('sPre').textContent = `${m[1]} tok · ${(m[2] / 1000).toFixed(1)} s`; prog(true, 100, 'Generating…'); }
+  else if (line.startsWith('TOK ')) { if (S.turn) { S.turn.raw += line.slice(4).replace(/\\n/g, '\n'); S.turn.n++; renderStream(); prog(true, 100, `Generating · ${S.turn.n} tokens`); } }
+  else if ((m = line.match(/^CONF ([\d.]+)/))) { const c = +m[1]; if (S.turn) S.turn.conf = c; $('confVal').textContent = c.toFixed(2); $('confFill').style.width = (c * 100) + '%'; }
+  else if ((m = line.match(/^EVT done tokens=(\d+) ms=(\d+) tps=([\d.]+)/))) { $('sGen').textContent = `${m[1]} tok · ${(m[2] / 1000).toFixed(1)} s · ${m[3]} tok/s`; }
+  else if (line.startsWith('ACT ')) finishTurn(line.slice(4));
+  else if (line.startsWith('ERR ')) { if (S.turn) finishTurn(null, line.slice(4)); else { boardState('err', 'error'); banner('Board error: ' + line.slice(4)); } }
+}
+function becomeReady(fromBoot) {
+  clearTimeout(probeT);
+  const was = S.ready; S.ready = true; prog(false);
+  if (!S.busy) { boardState('on', 'ready'); if (!S.turn) { $('act').textContent = 'Ready'; $('actSub').textContent = 'Type a request or pick an example'; } }
+  if (fromBoot) { playSeq([[[0, 24, 0], 120], [null, 120], [[0, 24, 0], 120], [null, 120], [[0, 24, 0], 120], [null, 120]], 'ready'); send('!think ' + ($('think').checked ? 1 : 0)); }
+  if (!was) announce('Board ready.');
+  setInputs(); updateFlashUi();
+}
+
+function renderTools() {
+  const box = $('toolList'); box.textContent = '';
+  const tools = S.tools || [{ name: 'set_led', parameters: { properties: { color: { enum: Object.keys(PALETTE) }, mode: { enum: ['solid', 'flash'] }, duration_seconds: { maximum: 30 } } }, assumed: true }];
+  for (const t of tools) {
+    const el = document.createElement('span'); el.className = 'tool';
+    const ps = Object.entries(t.parameters?.properties || {}).map(([k, v]) => k + (v.enum ? ': ' + v.enum.join('|') : v.minimum !== undefined || v.maximum !== undefined ? `: ${v.minimum ?? ''}…${v.maximum ?? ''}` : v.type ? ': ' + v.type : ''));
+    el.innerHTML = '<b></b>(<span></span>)'; el.firstChild.textContent = t.name; el.lastElementChild.textContent = ps.join(', ');
+    if (t.assumed) el.title = 'Assumed: this firmware does not report its tools';
+    box.append(el);
+  }
+  const chips = $('chips'); chips.textContent = '';
+  const ex = tools.flatMap(t => EXAMPLES[t.name] || []); ex.push(OFFTOPIC);
+  for (const q of ex) { const b = document.createElement('button'); b.type = 'button'; b.textContent = q; b.onclick = () => { $('q').value = q; ask(q); }; chips.append(b); }
+  setInputs();
+}
+
+function setInputs() {
+  const can = !!S.port && S.ready && !S.busy && !S.flashing;
+  $('q').disabled = !can; $('sendBtn').disabled = !can;
+  document.querySelectorAll('#chips button').forEach(b => b.disabled = !can);
+  $('resetBtn').disabled = !S.port || S.flashing;
+  $('chipBtn').disabled = !S.port || S.flashing || S.busy;
+  $('connectBtn').disabled = S.flashing;
+}
+
+/* ------------------------------------------------------------ requests */
+$('askForm').onsubmit = e => { e.preventDefault(); ask($('q').value.trim()); };
+$('think').onchange = () => { store.set('think', $('think').checked); if (S.port && S.ready && !S.busy) send('!think ' + ($('think').checked ? 1 : 0)); };
+$('speak').onchange = () => store.set('speak', $('speak').checked);
+function ask(q) {
+  if (!q || !S.ready || S.busy || S.flashing) return;
+  S.busy = true; setInputs(); boardState('busy', 'thinking');
+  S.turn = { q, raw: '', n: 0, conf: null, t0: performance.now() };
+  for (const id of ['sPre', 'sGen', 'sTot']) $(id).textContent = '…';
+  $('confVal').textContent = '–'; $('confFill').style.width = '0';
+  $('act').textContent = 'Thinking…'; $('actSub').textContent = `“${q}”`;
+  renderStream(); prog(true, 0, 'Sending…');
+  S.turn.timer = setInterval(() => $('sTot').textContent = ((performance.now() - S.turn.t0) / 1000).toFixed(0) + ' s', 500);
+  send(q);
+}
+function renderStream() {
+  const s = $('stream'), raw = S.turn ? S.turn.raw : ''; s.textContent = '';
+  const tm = raw.match(/<think>([\s\S]*?)(<\/think>|$)/), cm = raw.match(/<tool_call>([\s\S]*?)(<\/tool_call>|$)/);
+  if (tm && tm[1].trim()) { const d = document.createElement('div'); d.className = 'think'; d.textContent = tm[1].trim(); s.append(d); }
+  if (cm) { const d = document.createElement('div'); d.className = 'call'; let t = cm[1]; if (cm[2]) { try { t = JSON.stringify(JSON.parse(t), null, 2); } catch {} } d.textContent = (tm && tm[1].trim() ? '\n' : '') + t; s.append(d); }
+  if (!tm && !cm) s.append(document.createTextNode(raw));
+  if (S.busy) { const k = document.createElement('span'); k.className = 'cursor'; s.append(k); }
+  s.scrollTop = s.scrollHeight;
+}
+function parseAct(a) { const o = { kind: a.split(' ')[0] }; a.replace(/(\w+)=(\S+)/g, (_, k, v) => { o[k] = v; }); return o; }
+function finishTurn(act, err) {
+  const t = S.turn; if (!t) return; clearInterval(t.timer);
+  const secs = (performance.now() - t.t0) / 1000; $('sTot').textContent = secs.toFixed(1) + ' s';
+  S.busy = false; renderStream(); prog(false); boardState('on', 'ready');
+  let summary, swatch = null;
+  if (err) { summary = 'Error: ' + err; $('act').textContent = 'Error'; $('actSub').textContent = err; }
+  else if (act === 'none') { summary = 'No action. The request matched no tool.'; $('act').textContent = 'No action'; $('actSub').textContent = 'empty call []'; setPixel(null); }
+  else {
+    const p = parseAct(act);
+    if (p.kind === 'led') {
+      const c = PALETTE[p.color] || [32, 32, 32], d = parseFloat(p.duration) || 2, flash = p.mode === 'flash';
+      $('act').textContent = `${p.color} · ${flash ? 'blinking' : 'solid'}`; $('actSub').textContent = `set_led(color=${p.color}, mode=${p.mode}, duration=${d})`;
+      $('durLbl').textContent = 'Duration';
+      const steps = flash ? Array.from({ length: Math.max(1, Math.floor(d / 0.4)) }, () => [[c, 200], [null, 200]]).flat() : [[c, d * 1000]];
+      swatch = c; playSeq(steps, `${p.color} ${flash ? 'blink' : 'solid'}`, flash ? Math.max(1, Math.floor(d / 0.4)) * 400 : d * 1000);
+      summary = `LED ${flash ? 'blinking' : 'on'} ${p.color} for ${d} seconds.`;
+    } else if (p.kind === 'kettle' && p.action === 'heat') {
+      const tc = +p.temperature, warm = p.keep_warm === '1', c = kettleColor(tc);
+      $('act').textContent = `Heat to ${tc} °C${warm ? ' · keep warm' : ''}`; $('actSub').textContent = `set_kettle(temperature_c=${tc}, keep_warm=${warm})`;
+      $('durLbl').textContent = 'Simulated heater';
+      const steps = [...Array.from({ length: 3 }, () => [[scale(c, .25), 250], [c, 250]]).flat(),
+        ...(warm ? Array.from({ length: 6 }, () => [[scale(c, 1 / 6), 600], [scale(c, .5), 600]]).flat() : [[c, 1500]])];
+      swatch = c; playSeq(steps, `${tc} °C`, warm ? 1500 + 7200 : 3000);
+      summary = `Kettle heating to ${tc} degrees${warm ? ', then keeping warm' : ''}.`;
+    } else if (p.kind === 'kettle' && p.action === 'stop') {
+      $('act').textContent = 'Kettle off'; $('actSub').textContent = 'stop_kettle()'; $('durLbl').textContent = 'Simulated heater';
+      swatch = [24, 24, 24]; playSeq([[[24, 24, 24], 150]], 'off', 150); summary = 'Kettle switched off.';
+    } else { $('act').textContent = p.kind; $('actSub').textContent = act; summary = act; }
+  }
+  S.history.unshift({ q: t.q, swatch, secs, act: act ? 'ACT ' + act : 'ERR ' + err, conf: t.conf });
+  renderHistory(); S.turn = null; setInputs(); $('q').select(); $('q').focus(); announce(summary);
+}
+function renderHistory() {
+  const ol = $('hist'); ol.textContent = '';
+  for (const h of S.history.slice(0, 14)) {
+    const li = document.createElement('li');
+    const sw = document.createElement('span'); sw.className = 'sw'; if (h.swatch) { const [r, g, b] = h.swatch; sw.style.background = `rgb(${disp(r)},${disp(g)},${disp(b)})`; }
+    const q = document.createElement('span'); q.className = 'q'; q.textContent = h.q;
+    const t = document.createElement('span'); t.className = 't'; t.textContent = h.secs.toFixed(0) + ' s' + (h.conf != null ? ' · ' + h.conf.toFixed(2) : '');
+    const a = document.createElement('span'); a.className = 'a'; a.textContent = h.act;
+    li.append(sw, q, t, a); ol.append(li);
+  }
+}
+
+/* ------------------------------------------------------------ flasher UI */
+const cards = $('presetCards');
+for (const p of PRESETS) {
+  const lab = document.createElement('label'); lab.className = 'card' + (p.off ? ' off' : '');
+  lab.innerHTML = `<input type="radio" name="preset" value="${p.id}" ${p.off ? 'disabled' : ''}><div><b></b>${p.tag ? `<span class="tag">${p.tag}</span>` : ''}</div><p></p>${!p.off && p.id !== 'custom' ? '<div class="tools" data-tools></div>' : ''}`;
+  lab.querySelector('b').textContent = p.name; lab.querySelector('p').textContent = p.desc;
+  cards.append(lab);
+  if (!p.off && p.id !== 'custom') fetch(`fw/${p.id}/tools.json`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(tools => {
+    const box = lab.querySelector('[data-tools]'); if (!tools) return;
+    for (const t of tools) { const s = document.createElement('span'); s.className = 'tool'; s.innerHTML = '<b></b>'; s.firstChild.textContent = t.name + '()'; box.append(s); }
+  }).catch(() => {});
+}
+const savedPreset = store.get('preset', 'needle2-led');
+(cards.querySelector(`input[value="${savedPreset}"]`) || cards.querySelector('input')).checked = true;
+
+let customRows = [];
+function addRow(off = '0x10000') {
+  const row = { id: Math.random().toString(36).slice(2), off, file: null };
+  customRows.push(row); renderRows(); return row;
+}
+function renderRows() {
+  const box = $('customRows'); box.textContent = '';
+  customRows.forEach(r => {
+    const d = document.createElement('div'); d.className = 'frow';
+    d.innerHTML = `<input type="file" accept=".bin,.cact" aria-label="Firmware file"><input type="text" aria-label="Flash offset (hex)" spellcheck="false"><button type="button" aria-label="Remove file">×</button>`;
+    const [fi, oi, rb] = d.children; oi.value = r.off;
+    fi.onchange = () => { r.file = fi.files[0] || null; updateFlashUi(); };
+    oi.oninput = () => { r.off = oi.value.trim(); updateFlashUi(); };
+    rb.onclick = () => { customRows = customRows.filter(x => x !== r); renderRows(); updateFlashUi(); };
+    if (r.file) { const dt = new DataTransfer(); dt.items.add(r.file); fi.files = dt.files; }
+    box.append(d);
+  });
+}
+document.querySelectorAll('.quick button').forEach(b => b.onclick = () => {
+  if (b.dataset.merged) customRows = [];
+  addRow(b.dataset.off); updateFlashUi();
+});
+cards.onchange = () => { store.set('preset', selPreset()); if (selPreset() === 'custom' && !customRows.length) addRow('0x10000'); updateFlashUi(); };
+$('modelSrc').onchange = e => { if (e.target.value === 'file') $('modelFile').click(); updateFlashUi(); };
+$('modelFile').onchange = updateFlashUi;
+$('baud').value = String(store.get('baud', 921600)); $('baud').onchange = () => store.set('baud', +$('baud').value);
+$('eraseAll').onchange = updateFlashUi;
+$('think').checked = store.get('think', true); $('speak').checked = store.get('speak', false);
+
+const selPreset = () => cards.querySelector('input:checked')?.value;
+const selModel = () => document.querySelector('input[name=model]:checked').value;
+const hex = n => '0x' + n.toString(16);
+const kb = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.ceil(n / 1024) + ' KB';
+
+function planItems() {
+  const items = [], problems = [];
+  const pid = selPreset();
+  if (pid === 'custom') {
+    for (const r of customRows) {
+      const a = /^0x[0-9a-f]+$/i.test(r.off) ? parseInt(r.off, 16) : NaN;
+      if (!r.file) { problems.push('Choose a file for every custom row.'); continue; }
+      if (isNaN(a)) { problems.push(`Offset "${r.off}" is not hex like 0x10000.`); continue; }
+      if (a % 0x1000) problems.push(`${r.file.name} at ${hex(a)} is not 4 KB aligned.`);
+      items.push({ name: r.file.name, addr: a, size: r.file.size, src: () => r.file.arrayBuffer() });
+    }
+    if (!customRows.length) problems.push('Add at least one file.');
+  } else {
+    for (const [f, a] of FILES) items.push({ name: `${pid}/${f}`, addr: a, size: null, src: () => fetchBin(`fw/${pid}/${f}`) });
+  }
+  const m = selModel();
+  if (m === 'local') items.push({ name: 'needle2.cact (this site)', addr: MODEL_ADDR, size: 13737807, src: () => fetchBin('model/needle2.cact'), model: true });
+  if (m === 'hf') items.push({ name: 'needle2.cact (Hugging Face)', addr: MODEL_ADDR, size: 13737807, src: () => fetchBin(HF_URL), model: true });
+  if (m === 'file') { const f = $('modelFile').files[0];
+    if (!f) problems.push('Choose a model file.'); else { if (f.size > MODEL_MAX) problems.push(`${f.name} (${kb(f.size)}) is larger than the 13.1 MB model partition.`);
+      items.push({ name: f.name, addr: MODEL_ADDR, size: f.size, src: () => f.arrayBuffer(), model: true }); } }
+  if ($('eraseAll').checked && m === 'keep') problems.push('"Erase entire chip" also wipes the model. Pick a model source, or untick erase.');
+  const sorted = [...items].filter(i => i.size != null).sort((a, b) => a.addr - b.addr);
+  for (let i = 1; i < sorted.length; i++) if (sorted[i - 1].addr + sorted[i - 1].size > sorted[i].addr) problems.push(`${sorted[i - 1].name} overlaps ${sorted[i].name}.`);
+  for (const it of items) if (it.size != null && it.addr + it.size > 16 * 1048576) problems.push(`${it.name} runs past the end of 16 MB flash.`);
+  return { items, problems };
+}
+async function fetchBin(url) { const r = await fetch(url, { cache: 'no-store' }); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`); return r.arrayBuffer(); }
+
+function updateFlashUi() {
+  $('customBox').classList.toggle('show', selPreset() === 'custom');
+  const { items, problems } = planItems();
+  const plan = $('plan'); plan.textContent = '';
+  if (!items.length) plan.innerHTML = '<div class="empty">Nothing selected</div>';
+  items.forEach((it, i) => {
+    const d = document.createElement('div'); d.className = 'pi'; d.id = 'pi' + i;
+    d.innerHTML = `<span></span><span class="nm"></span><span class="st"></span><div class="bar"><i></i></div>`;
+    d.children[0].textContent = hex(it.addr); d.children[1].textContent = it.name; d.children[2].textContent = it.size ? kb(it.size) : '';
+    plan.append(d);
+  });
+  const w = $('flashWarn'); w.hidden = !problems.length; w.textContent = problems.join(' ');
+  const chipBad = S.chip && selPreset() !== 'custom' && chipProblem(S.chip);
+  if (chipBad) { w.hidden = false; w.textContent = (w.textContent ? w.textContent + ' ' : '') + chipBad; }
+  $('flashBtn').disabled = !S.port || S.flashing || !!problems.length || !items.length || S.busy;
+  $('flashNote').textContent = !S.port ? 'Connect a board to enable flashing.' : S.busy ? 'Wait for the current request to finish.' :
+    (S.chip ? '' : 'The chip is checked automatically before anything is written.');
+}
+function chipProblem(c) {
+  if (!/ESP32-S3/.test(c.desc)) return `Needle firmware targets ESP32-S3, but this chip is ${c.desc}.`;
+  if (c.flash && parseInt(c.flash) < 16) return `Needle needs 16 MB flash; this board reports ${c.flash}.`;
+  return '';
+}
+function renderChip() {
+  const c = S.chip; if (!c) return;
+  $('fChip').textContent = c.desc; $('svgMac').textContent = 'MAC ' + c.mac;
+  const ps = (c.features.find(f => /PSRAM/.test(f)) || 'PSRAM ?').replace('Embedded ', '');
+  if ($('fMem').textContent === '–') $('fMem').textContent = `${c.flash} flash · ${ps}`;
+  $('svgVariant').textContent = `${c.flash} flash · ${ps.replace(/ \(.*/, '')}`;
+}
+if (S.chip) renderChip();
+
+/* ------------------------------------------------------------ flasher core */
+function flog(s) { const l = $('flog'); l.hidden = false; l.textContent += s; l.scrollTop = l.scrollHeight; }
+const term = { clean() {}, writeLine(s) { flog(s + '\n'); }, write(s) { flog(s); } };
+
+async function withBootloader(fn) {
+  S.flashing = true; setInputs(); updateFlashUi(); seqId++; setPixel(null, 'bootloader');
+  boardState('flash', 'bootloader'); linkState('flash', 'esptool'); $('flog').textContent = '';
+  await closeConsole();
+  const transport = new Transport(S.port, false);
+  const baud = +$('baud').value;
+  const loader = new ESPLoader({ transport, baudrate: baud, terminal: term, debugLogging: false });
+  let ok = false;
+  try {
+    const t = setInterval(pulseRx, 120);
+    let desc; try { desc = await loader.main(); } finally { clearInterval(t); }
+    const features = await loader.chip.getChipFeatures(loader);
+    const mac = await loader.chip.readMac(loader);
+    const flash = await loader.detectFlashSize();
+    S.chip = { desc, features, mac, flash }; store.set('chip', S.chip); renderChip();
+    ok = await fn(loader);
+    flog('\nRebooting…\n'); await loader.after('hard_reset');
+  } catch (e) {
+    flog('\n✖ ' + (e.message || e) + '\n'); boardState('err', 'flash error'); banner('Flasher: ' + (e.message || e));
+    try { await loader.after('hard_reset'); } catch {}
+  } finally {
+    try { await transport.disconnect(); } catch {}
+    S.flashing = false;
+    try { await openConsole(); bootSeen(); } catch (e) { linkState('err', 'lost'); banner('Could not reopen the console: ' + e.message); }
+    setInputs(); updateFlashUi();
+  }
+  return ok;
+}
+
+$('chipBtn').onclick = () => withBootloader(async () => { flog(`\n${S.chip.desc}\n${S.chip.features.join(', ')}\nflash ${S.chip.flash} · MAC ${S.chip.mac}\n`); announce('Chip info read: ' + S.chip.desc); return true; });
+
+$('flashBtn').onclick = async () => {
+  const { items, problems } = planItems(); if (problems.length || !items.length) return;
+  const isPreset = selPreset() !== 'custom';
+  // Load everything before touching the board, so a missing file never leaves it half-written.
+  $('flashBtn').disabled = true; $('flashNote').textContent = 'Loading images…';
+  const data = [];
+  try {
+    for (const [i, it] of items.entries()) { $('pi' + i).querySelector('.st').textContent = 'loading';
+      const buf = new Uint8Array(await it.src()); data.push(buf); it.size = buf.length;
+      $('pi' + i).querySelector('.st').textContent = kb(buf.length);
+      if (it.model && buf.length > MODEL_MAX) throw new Error(`${it.name} is larger than the model partition`); }
+  } catch (e) { banner('Could not load images: ' + e.message); updateFlashUi(); return; }
+  $('flashNote').textContent = '';
+  const t0 = performance.now();
+  const ok = await withBootloader(async loader => {
+    if (isPreset) { const bad = chipProblem(S.chip); if (bad) throw new Error(bad + ' Nothing was written.'); }
+    if (isPreset && !S.chip.features.some(f => /PSRAM 8MB/.test(f))) flog('⚠ The chip does not report embedded 8 MB PSRAM. If your module has octal PSRAM outside the chip this is fine; otherwise Needle will boot-loop.\n');
+    const fileArray = items.map((it, i) => ({ data: data[i], address: it.addr }));
+    await loader.writeFlash({ fileArray, flashMode: 'keep', flashFreq: 'keep', flashSize: 'keep', eraseAll: $('eraseAll').checked, compress: true,
+      calculateMD5Hash: md5hex,
+      reportProgress: (i, w, tot) => { const el = $('pi' + i); if (!el) return; el.querySelector('.bar>i').style.width = (100 * w / tot) + '%';
+        el.querySelector('.st').textContent = w >= tot ? 'verifying' : Math.round(100 * w / tot) + '%'; pulseTx(); } });
+    items.forEach((_, i) => { const st = $('pi' + i).querySelector('.st'); st.textContent = 'verified ✓'; st.classList.add('ok'); });
+    flog(`\n✔ Wrote and verified ${items.length} image(s) in ${((performance.now() - t0) / 1000).toFixed(0)} s\n`);
+    S.fw = null; S.tools = null; $('profBox').hidden = true; $('prof').textContent = '';
+    return true;
+  });
+  announce(ok ? 'Flash complete. The board is rebooting.' : 'Flashing failed. Check the flash log.');
+};
+
+/* ------------------------------------------------------------ misc */
+$('themeBtn').onclick = () => { const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  const next = cur === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = next; store.set('theme', next); };
+{ const t = store.get('theme', null); if (t) document.documentElement.dataset.theme = t; }
+if (!('serial' in navigator)) { banner(window.isSecureContext ? 'This browser has no Web Serial. Use desktop Chrome, Edge or Opera.' : 'Web Serial needs a secure origin. Open this page over HTTPS or from localhost.'); $('connectBtn').disabled = true; }
+renderTools(); updateFlashUi(); setPixel(null);
+fetch('model/needle2.cact', { method: 'HEAD', cache: 'no-store' }).then(r => { if (!r.ok) throw 0; }).catch(() => {
+  const o = $('localModelOpt'); o.querySelector('input').disabled = true; o.style.opacity = .5;
+  o.querySelector('small').textContent = 'Not hosted alongside this copy of the page';
+});
+window.__nb = { S, handle, setPixel };   // for console debugging
+</script>
+</body>
+</html>
